@@ -51,13 +51,11 @@ in this repository with details.
 ### 💣 Debugging
 
 Usually when running the Mobile Events SDK in the Emulator it does not send events or emit debug
-messages, you can enable these by setting properties on the `sharedManager`:
+messages, you can enable these by setting keys in the `Info.plist` of your application:
 
-```objc
-if (DEBUG) {
-    MMEventsManager.sharedManager.isMetricsEnabledInSimulator = YES;
-    MMEventsManager.sharedManager.isDebugLoggingEnabled = YES;
-}
+```
+MMEDebugLogging: YES
+MMECollectionEnabledInSimulator: YES
 ```
 
 ### 🗺 Foreground and Background Location Collection
