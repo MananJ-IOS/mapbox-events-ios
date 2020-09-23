@@ -60,7 +60,7 @@ int const kMMEMaxRequestCount = 1000;
     NSMutableArray *eventBatches = [[NSMutableArray alloc] init];
     int eventsRemaining = (int)[events count];
     int i = 0;
-    
+
     while (eventsRemaining) {
         NSRange range = NSMakeRange(i, MIN(kMMEMaxRequestCount, eventsRemaining));
         NSArray *batchArray = [events subarrayWithRange:range];
@@ -68,21 +68,25 @@ int const kMMEMaxRequestCount = 1000;
         eventsRemaining -= range.length;
         i += range.length;
     }
-    
+
     return eventBatches;
 }
 
 - (void)postEvents:(NSArray *)events completionHandler:(nullable void (^)(NSError * _Nullable error))completionHandler {
+    NSLog(@"---------- POST EVENTS ------------");
+    NSLog(@"%@", events);
     [MMEMetricsManager.sharedManager updateMetricsFromEventQueue:events];
-    
+
     NSArray *eventBatches = [self batchFromEvents:events];
-    
+
     for (NSArray *batch in eventBatches) {
         NSURLRequest *request = [self requestForEvents:batch];
         if (request) {
+            NSLog(@"-------- REQUEST VALID ---------");
             [self.sessionWrapper processRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
                 [MMEMetricsManager.sharedManager updateReceivedBytes:data.length];
-                
+
+                NSLog(@"%@", [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil]);
                 NSError *statusError = nil;
                 if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
                     NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
@@ -91,9 +95,9 @@ int const kMMEMaxRequestCount = 1000;
                     statusError = [self unexpectedResponseErrorFromRequest:request andResponse:response];
                 }
                 error = error ?: statusError;
-                
+
                 [MMEMetricsManager.sharedManager updateMetricsFromEventCount:events.count request:request error:error];
-                
+
                 if (completionHandler) {
                     completionHandler(error);
                 }
@@ -112,20 +116,20 @@ int const kMMEMaxRequestCount = 1000;
 // MARK: - Metadata Service
 
 - (void)postMetadata:(NSArray *)metadata filePaths:(NSArray *)filePaths completionHandler:(nullable void (^)(NSError * _Nullable error))completionHandler {
-    
+
     NSString *boundary = [[NSUUID UUID] UUIDString];
     NSData *binaryData = [self createBodyWithBoundary:boundary metadata:metadata filePaths:filePaths];
     NSURLRequest *request = [self requestForBinary:binaryData boundary:boundary];
     [self.sessionWrapper processRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
         [MMEMetricsManager.sharedManager updateReceivedBytes:data.length];
-        
+
         NSError *statusError = nil;
         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
         statusError = [self statusErrorFromRequest:request andHTTPResponse:httpResponse];
         if (completionHandler) {
             error = error ?: statusError;
             completionHandler(error);
-            
+
             [MMEMetricsManager.sharedManager updateMetricsFromEventCount:filePaths.count request:request error:error];
         }
 
@@ -146,7 +150,7 @@ int const kMMEMaxRequestCount = 1000;
             repeats:YES
             block:^(NSTimer * _Nonnull timer) {
                 NSURLRequest *request = [self requestForConfiguration];
-                
+
                 [self.sessionWrapper processRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
                     [MMEMetricsManager.sharedManager updateReceivedBytes:data.length];
                     NSHTTPURLResponse *httpResponse = nil;
@@ -157,7 +161,7 @@ int const kMMEMaxRequestCount = 1000;
                     } else {
                         statusError = [self unexpectedResponseErrorFromRequest:request andResponse:response];
                     }
-                    
+
                     if (statusError) {
                         [MMEEventsManager.sharedManager reportError:statusError];
                     }
@@ -166,7 +170,7 @@ int const kMMEMaxRequestCount = 1000;
                         if (configError) {
                             [MMEEventsManager.sharedManager reportError:configError];
                         }
-                        
+
                         // check for time-offset from the server
                         NSString *dateHeader = httpResponse.allHeaderFields[@"Date"];
                         if (dateHeader) {
@@ -176,7 +180,7 @@ int const kMMEMaxRequestCount = 1000;
                                 [MMEDate recordTimeOffsetFromServer:date];
                             } // else failed to parse date
                         }
-                        
+
                         NSUserDefaults.mme_configuration.mme_configUpdateDate = MMEDate.date;
                     }
 
@@ -184,7 +188,7 @@ int const kMMEMaxRequestCount = 1000;
                     [MMEMetricsManager.sharedManager generateTelemetryMetricsEvent];
                 }];
             }];
-        
+
         // be power conscious and give this timer a minute of slack so it can be coalesced
         self.configurationUpdateTimer.tolerance = 60;
 
@@ -219,7 +223,7 @@ int const kMMEMaxRequestCount = 1000;
         [userInfo setValue:description forKey:NSLocalizedDescriptionKey];
         [userInfo setValue:reason forKey:NSLocalizedFailureReasonErrorKey];
         [userInfo setValue:httpResponse forKey:MMEResponseKey];
-        
+
         statusError = [NSError errorWithDomain:MMEErrorDomain code:MMESessionFailedError userInfo:userInfo];
     }
     return statusError;
@@ -233,7 +237,7 @@ int const kMMEMaxRequestCount = 1000;
     [userInfo setValue:description forKey:NSLocalizedDescriptionKey];
     [userInfo setValue:reason forKey:NSLocalizedFailureReasonErrorKey];
     [userInfo setValue:response forKey:MMEResponseKey];
-    
+
     NSError *statusError = [NSError errorWithDomain:MMEErrorDomain code:MMEUnexpectedResponseError userInfo:userInfo];
     return statusError;
 }
@@ -242,30 +246,30 @@ int const kMMEMaxRequestCount = 1000;
     NSString *path = [NSString stringWithFormat:@"%@?access_token=%@", MMEAPIClientEventsConfigPath, NSUserDefaults.mme_configuration.mme_accessToken];
     NSURL *configServiceURL = [NSURL URLWithString:path relativeToURL:NSUserDefaults.mme_configuration.mme_configServiceURL];
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:configServiceURL];
-    
+
     [request setValue:NSUserDefaults.mme_configuration.mme_userAgentString forHTTPHeaderField:MMEAPIClientHeaderFieldUserAgentKey];
     [request setValue:MMEAPIClientHeaderFieldContentTypeValue forHTTPHeaderField:MMEAPIClientHeaderFieldContentTypeKey];
     [request setHTTPMethod:MMEAPIClientHTTPMethodPost];
-    
+
     return request;
 }
 
 - (NSURLRequest *)requestForBinary:(NSData *)binaryData boundary:(NSString *)boundary {
     NSString *path = [NSString stringWithFormat:@"%@?access_token=%@", MMEAPIClientAttachmentsPath, NSUserDefaults.mme_configuration.mme_accessToken];
-    
+
     NSURL *url = [NSURL URLWithString:path relativeToURL:NSUserDefaults.mme_configuration.mme_eventsServiceURL];
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:url];
-    
+
     NSString *contentType = [NSString stringWithFormat:@"%@; boundary=\"%@\"",MMEAPIClientAttachmentsHeaderFieldContentTypeValue,boundary];
-    
+
     [request setValue:NSUserDefaults.mme_configuration.mme_userAgentString forHTTPHeaderField:MMEMapboxAgent];
     [request setValue:NSUserDefaults.mme_configuration.mme_legacyUserAgentString forHTTPHeaderField:MMEAPIClientHeaderFieldUserAgentKey];
     [request setValue:contentType forHTTPHeaderField:MMEAPIClientHeaderFieldContentTypeKey];
     [request setHTTPMethod:MMEAPIClientHTTPMethodPost];
-    
+
     [request setValue:nil forHTTPHeaderField:MMEAPIClientHeaderFieldContentEncodingKey];
     [request setHTTPBody:binaryData];
-    
+
     return request;
 }
 
@@ -280,12 +284,19 @@ int const kMMEMaxRequestCount = 1000;
     [request setValue:MMEAPIClientHeaderFieldContentTypeValue forHTTPHeaderField:MMEAPIClientHeaderFieldContentTypeKey];
     [request setHTTPMethod:MMEAPIClientHTTPMethodPost];
 
-    NSMutableArray *eventAttributes = [NSMutableArray arrayWithCapacity:events.count];
+    NSMutableDictionary *eventAttributes = [NSMutableDictionary new];
     [events enumerateObjectsUsingBlock:^(MMEEvent * _Nonnull event, NSUInteger idx, BOOL * _Nonnull stop) {
         if (event.attributes) {
-            [eventAttributes addObject:event.attributes];
+            [eventAttributes setObject:event.attributes forKey:@"event"];
         }
     }];
+
+//    NSMutableArray *eventAttributes = [NSMutableArray arrayWithCapacity:events.count];
+//    [events enumerateObjectsUsingBlock:^(MMEEvent * _Nonnull event, NSUInteger idx, BOOL * _Nonnull stop) {
+//        if (event.attributes) {
+//            [eventAttributes addObject:event.attributes];
+//        }
+//    }];
 
     NSError* jsonError = nil;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:eventAttributes options:0 error:&jsonError];
@@ -305,7 +316,7 @@ int const kMMEMaxRequestCount = 1000;
 
         return nil;
     }
-    
+
     return [request copy];
 }
 
@@ -315,11 +326,11 @@ int const kMMEMaxRequestCount = 1000;
     if (UTI == NULL) {
         return nil;
     }
-    
+
     NSString *mimetype = CFBridgingRelease(UTTypeCopyPreferredTagWithClass(UTI, kUTTagClassMIMEType));
-    
+
     CFRelease(UTI);
-    
+
     return mimetype;
 }
 
@@ -350,9 +361,9 @@ int const kMMEMaxRequestCount = 1000;
         [httpBody appendData:data];
         [httpBody appendData:[@"\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
     }
-    
+
     [httpBody appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-    
+
     return httpBody;
 }
 

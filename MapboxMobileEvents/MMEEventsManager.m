@@ -56,12 +56,12 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)sharedManager {
     static MMEEventsManager *_sharedManager;
     static dispatch_once_t onceToken;
-    
+
     dispatch_once(&onceToken, ^{
         [MMECategoryLoader loadCategories];
         _sharedManager = [MMEEventsManager.alloc initShared];
     });
-    
+
     return _sharedManager;
 }
 
@@ -71,7 +71,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initShared {
     if (self = [super init]) {
-        _paused = YES;
+        _paused = NO;
         _eventQueue = [NSMutableArray array];
         _commonEventData = [[MMECommonEventData alloc] init];
         _uniqueIdentifer = [[MMEUniqueIdentifier alloc] initWithTimeInterval:NSUserDefaults.mme_configuration.mme_identifierRotationInterval];
@@ -123,7 +123,7 @@ NS_ASSUME_NONNULL_BEGIN
                     object:nil];
             }
 
-            strongSelf.paused = YES;
+            strongSelf.paused = NO;
             strongSelf.locationManager = [[MMELocationManager alloc] init];
             strongSelf.locationManager.delegate = strongSelf;
             [strongSelf resumeMetricsCollection];
@@ -159,7 +159,7 @@ NS_ASSUME_NONNULL_BEGIN
     // From https://github.com/mapbox/mapbox-events-ios/issues/44 it looks like
     // `NSProcessInfoPowerStateDidChangeNotification` can be sent from a thread other than the main
     // thread.
-    
+
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         [weakSelf pauseOrResumeMetricsCollectionIfRequired];
@@ -176,7 +176,7 @@ NS_ASSUME_NONNULL_BEGIN
                 MMEDebugEventType: MMEDebugEventTypeBackgroundTask,
                 MMEEventKeyLocalDebugDescription: @"Initiated background task",
                 @"Identifier": @(_backgroundTaskIdentifier)}];
-            
+
             _backgroundTaskIdentifier = [self.application beginBackgroundTaskWithExpirationHandler:^{
                 [self pushDebugEventWithAttributes:@{
                     MMEDebugEventType: MMEDebugEventTypeBackgroundTask,
@@ -185,10 +185,10 @@ NS_ASSUME_NONNULL_BEGIN
                 [self.application endBackgroundTask:self.backgroundTaskIdentifier];
                 self.backgroundTaskIdentifier = UIBackgroundTaskInvalid;
             }];
-            
+
             [self flush];
         }
-                
+
         [self processAuthorizationStatus:[CLLocationManager authorizationStatus] andApplicationState:self.application.applicationState];
     }
     @catch(NSException *except) {
@@ -227,9 +227,9 @@ NS_ASSUME_NONNULL_BEGIN
             return;
         }
 
-        if (NSUserDefaults.mme_configuration.mme_accessToken == nil) {
-            return;
-        }
+//        if (NSUserDefaults.mme_configuration.mme_accessToken == nil) {
+//            return;
+//        }
 
         if (self.eventQueue.count == 0) {
             return;
@@ -458,6 +458,7 @@ NS_ASSUME_NONNULL_BEGIN
     MMEDate *now = [MMEDate date];
     MMEEvent *event = nil;
 
+
     if ([name isEqualToString:MMEEventTypeMapLoad]) {
         event = [MMEEvent mapLoadEventWithDateString:[MMEDate.iso8601DateFormatter stringFromDate:now] commonEventData:self.commonEventData];
     } else if ([name isEqualToString:MMEEventTypeMapTap]) {
@@ -469,7 +470,7 @@ NS_ASSUME_NONNULL_BEGIN
     } else if ([name isEqualToString:MMEventTypeOfflineDownloadEnd]) {
         event = [MMEEvent mapOfflineDownloadEndEventWithDateString:[MMEDate.iso8601DateFormatter stringFromDate:now] attributes:attributes];
     }
-    
+
     if ([name hasPrefix:MMENavigationEventPrefix]) {
         event = [MMEEvent navigationEventWithName:name attributes:attributes];
     }
@@ -477,7 +478,7 @@ NS_ASSUME_NONNULL_BEGIN
     if ([name hasPrefix:MMEVisionEventPrefix]) {
         event = [MMEEvent visionEventWithName:name attributes:attributes];
     }
-    
+
     if ([name hasPrefix:MMESearchEventPrefix]) {
         event = [MMEEvent searchEventWithName:name attributes:attributes];
     }
@@ -516,7 +517,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (MMEEvent *)reportError:(NSError *)eventsError {
     MMEEvent *errorEvent = nil;
-    
+
     @try {
         if (self.delegate && [self.delegate respondsToSelector:@selector(eventsManager:didEncounterError:)]) {
             [self.delegate eventsManager:self didEncounterError:eventsError];
@@ -561,10 +562,10 @@ NS_ASSUME_NONNULL_BEGIN
             MMEEventKeyLocalDebugDescription: @"Already paused"}];
         return;
     }
-    
+
     self.paused = YES;
     [self resetEventQueuing];
-    
+
     [self.locationManager stopUpdatingLocation];
     [self pushDebugEventWithAttributes:@{
         MMEDebugEventType: MMEDebugEventTypeLocationManager,
@@ -582,7 +583,7 @@ NS_ASSUME_NONNULL_BEGIN
             MMEEventKeyLocalDebugDescription: @"Already running"}];
         return;
     }
-    
+
     self.paused = NO;
 
     if (NSUserDefaults.mme_configuration.mme_isCollectionEnabled) {
@@ -608,16 +609,28 @@ NS_ASSUME_NONNULL_BEGIN
     if (!event) {
         return;
     }
-    
+
     [self.eventQueue addObject:event];
+//    if (event.name == MMEEventTypeMapLoad) {
+////        NSString *semanticVersion = [NSBundle mgl_frameworkInfoDictionary][@"MGLSemanticVersionString"];
+////        NSString *shortVersion = [NSBundle mgl_frameworkInfoDictionary][@"CFBundleShortVersionString"];
+////        NSString *sdkVersion = semanticVersion ?: shortVersion;
+////        NSString *resolvedAccessToken = [MGLMapboxEvents sharedInstance].accessToken ?: accessToken;
+////        self.apiClient = [[MMEAPIClient alloc] initWithAccessToken:accessToken
+////        userAgentBase:userAgentBase
+////        hostSDKVersion:hostSDKVersion];
+//        self.apiClient = [[MMEAPIClient alloc] initWithAccessToken:NSUserDefaults.mme_configuration.mme_accessToken userAgentBase:@"mapbox-maps-ios" hostSDKVersion:@"1.0.0"];
+//        [self.apiClient postEvent:event completionHandler:^(NSError * _Nullable error) {
+//            NSLog(@"%@", error);
+//        }];
+//    }
     [self pushDebugEventWithAttributes:@{
         MMEDebugEventType: MMEDebugEventTypePush,
         MMEEventKeyLocalDebugDescription: [NSString stringWithFormat:@"Added event to event queue; event queue now has %ld events", (long)self.eventQueue.count]}];
-    
     if (self.eventQueue.count >= NSUserDefaults.mme_configuration.mme_eventFlushCount) {
         [self flush];
     }
-    
+
     if (self.eventQueue.count == 1) {
         [self.timerManager start];
     }
@@ -643,8 +656,8 @@ NS_ASSUME_NONNULL_BEGIN
     [self pushDebugEventWithAttributes:@{
         MMEDebugEventType: MMEDebugEventTypeLocationManager,
         MMEEventKeyLocalDebugDescription: [NSString stringWithFormat:@"Location manager sent %ld locations", (long)locations.count]}];
-    
-    for (CLLocation *location in locations) {        
+
+    for (CLLocation *location in locations) {
         MMEMapboxEventAttributes *eventAttributes = @{
             MMEEventKeyCreated: [MMEDate.iso8601DateFormatter stringFromDate:[location timestamp]],
             MMEEventKeyLatitude: @([location mme_latitudeRoundedWithPrecision:7]),
@@ -690,7 +703,7 @@ NS_ASSUME_NONNULL_BEGIN
     [self pushDebugEventWithAttributes:@{
         MMEDebugEventType: MMEDebugEventTypeLocationManager,
         MMEEventKeyLocalDebugDescription: [NSString stringWithFormat:@"Location manager visit %@", visit]}];
-    
+
     CLLocation *location = [[CLLocation alloc] initWithLatitude:visit.coordinate.latitude longitude:visit.coordinate.longitude];
     MMEMapboxEventAttributes *eventAttributes = @{
         MMEEventKeyCreated: [MMEDate.iso8601DateFormatter stringFromDate:[location timestamp]],
